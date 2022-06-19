@@ -383,14 +383,14 @@ static void reset_hard(const struct object_id *oid, int verbose)
 static void restore_state(const struct object_id *head,
 			  const struct object_id *stash)
 {
-	const char *args[] = { "stash", "apply", NULL, NULL };
+	const char *args[] = { "stash", "apply", "--index", NULL, NULL };
 
 	if (is_null_oid(stash))
 		return;
 
 	reset_hard(head, 1);
 
-	args[2] = oid_to_hex(stash);
+	args[3] = oid_to_hex(stash);
 
 	/*
 	 * It is OK to ignore error here, for example when there was
