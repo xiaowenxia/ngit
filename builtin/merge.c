@@ -385,10 +385,10 @@ static void restore_state(const struct object_id *head,
 {
 	const char *args[] = { "stash", "apply", "--index", NULL, NULL };
 
-	if (is_null_oid(stash))
-		return;
-
 	reset_hard(head, 1);
+
+	if (is_null_oid(stash))
+		goto refresh_cache;
 
 	args[3] = oid_to_hex(stash);
 
@@ -398,7 +398,9 @@ static void restore_state(const struct object_id *head,
 	 */
 	run_command_v_opt(args, RUN_GIT_CMD);
 
-	refresh_cache(REFRESH_QUIET);
+refresh_cache:
+	if (discard_cache() < 0 || read_cache() < 0)
+		die(_("could not read index"));
 }
 
 /* This is called when no merge was necessary. */
