@@ -20,4 +20,13 @@ export GIT_TEST_MIDX_READ_RIDX
 midx_bitmap_core rev
 midx_bitmap_partial_tests rev
 
+test_expect_success 'reinitialize the repository with lookup table enabled' '
+    rm -fr * .git &&
+    git init &&
+    git config pack.writeBitmapLookupTable true
+'
+
+midx_bitmap_core rev
+midx_bitmap_partial_tests rev
+
 test_done
