@@ -292,6 +292,18 @@ struct rename_info {
 	int needed_limit;
 };
 
+struct conflicted_submodule_item {
+	char *oid;
+	char *path;
+	int resolution_exists;
+};
+
+struct conflicted_submodule_list {
+	struct conflicted_submodule_item *items;
+	size_t nr;
+	size_t alloc;
+};
+
 struct merge_options_internal {
 	/*
 	 * paths: primary data structure in all of merge ort.
@@ -385,6 +397,9 @@ struct merge_options_internal {
 
 	/* call_depth: recursion level counter for merging merge bases */
 	int call_depth;
+
+	/* field that holds submodule conflict information */
+	struct conflicted_submodule_list conflicted_submodules;
 };
 
 struct version_info {
@@ -1611,6 +1626,9 @@ static int merge_submodule(struct merge_options *opt,
 	struct commit *commit_o, *commit_a, *commit_b;
 	int parent_count;
 	struct object_array merges;
+	struct conflicted_submodule_list *csub = &opt->priv->conflicted_submodules;
+	struct conflicted_submodule_item csub_item;
+	int resolution_exists = 0;
 
 	int i;
 	int search = !opt->priv->call_depth;
@@ -1704,6 +1722,7 @@ static int merge_submodule(struct merge_options *opt,
 			   "which will accept this suggestion.\n"),
 			 oid_to_hex(&merges.objects[0].item->oid), path);
 		strbuf_release(&sb);
+		resolution_exists = 1;
 		break;
 	default:
 		for (i = 0; i < merges.nr; i++)
@@ -1713,10 +1732,22 @@ static int merge_submodule(struct merge_options *opt,
 			 _("Failed to merge submodule %s, but multiple "
 			   "possible merges exist:\n%s"), path, sb.buf);
 		strbuf_release(&sb);
+		resolution_exists = 1;
 	}
 
 	object_array_clear(&merges);
 cleanup:
+	if (!ret) {
+		if (!csub) {
+			CALLOC_ARRAY(csub, 1);
+		}
+		csub_item.oid = xstrdup(repo_find_unique_abbrev(&subrepo, b, DEFAULT_ABBREV));
+		csub_item.path = xstrdup(path);
+		csub_item.resolution_exists = resolution_exists;
+		ALLOC_GROW(csub->items, csub->nr + 1, csub->alloc);
+		csub->items[csub->nr++] = csub_item;
+		opt->priv->conflicted_submodules = *csub;
+	}
 	repo_clear(&subrepo);
 	return ret;
 }
@@ -4257,6 +4288,29 @@ static int record_conflicted_index_entries(struct merge_options *opt)
 	return errs;
 }
 
+static void print_submodule_conflict_suggestion(struct conflicted_submodule_list *csub) {
+	if (csub && csub->nr > 0) {
+		int i;
+		printf(_("Recursive merging with submodules currently only supports trivial cases.\n"
+			"Please manually handle the merging of each conflicted submodule.\n"
+			"This can be accomplished with the following steps:\n"));
+		for (i = 0; i < csub->nr; i++) {
+			printf(_(" - go to submodule (%s), and either merge commit %s\n"
+				    "or update to an existing commit which has merged those changes\n"),
+					csub->items[i].path,
+					csub->items[i].oid);
+			if (csub->items[i].resolution_exists)
+				printf(_("such as one listed above\n"));
+		}
+		printf(_(" - come back to superproject, and `git add"));
+		for (i = 0; i < csub->nr; i++)
+			printf(_(" %s"), csub->items[i].path);
+		printf(_("` to record the above merge or update \n"
+			" - resolve any other conflicts in the superproject\n"
+			" - commit the resulting index in the superproject\n"));
+	}
+}
+
 void merge_switch_to_result(struct merge_options *opt,
 			    struct tree *head,
 			    struct merge_result *result,
@@ -4324,6 +4378,8 @@ void merge_switch_to_result(struct merge_options *opt,
 			printf("%s", sb->buf);
 		}
 		string_list_clear(&olist, 0);
+
+		print_submodule_conflict_suggestion(&opti->conflicted_submodules);
 
 		/* Also include needed rename limit adjustment now */
 		diff_warn_rename_limit("merge.renamelimit",
