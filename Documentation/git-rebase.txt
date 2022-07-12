@@ -615,6 +615,9 @@ start would be overridden by the presence of
 	are being rebased. Any branches that are checked out in a worktree
 	or point to a `squash! ...` or `fixup! ...` commit are not updated
 	in this way.
++
+If the configuration variable `rebase.updateRefs` is set, then this option
+can be used to override and disable this setting.
 
 INCOMPATIBLE OPTIONS
 --------------------
