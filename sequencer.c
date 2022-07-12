@@ -36,6 +36,7 @@
 #include "rebase-interactive.h"
 #include "reset.h"
 #include "branch.h"
+#include "log-tree.h"
 
 #define GIT_REFLOG_ACTION "GIT_REFLOG_ACTION"
 
@@ -192,6 +193,19 @@ struct update_ref_record {
 	struct object_id before;
 	struct object_id after;
 };
+
+static struct update_ref_record *init_update_ref_record(const char *ref)
+{
+	struct update_ref_record *rec = xmalloc(sizeof(*rec));
+
+	oidcpy(&rec->before, null_oid());
+	oidcpy(&rec->after, null_oid());
+
+	/* This may fail, but that's fine, we will keep the null OID. */
+	read_ref(ref, &rec->before);
+
+	return rec;
+}
 
 static int git_sequencer_config(const char *k, const char *v, void *cb)
 {
@@ -4106,9 +4120,100 @@ leave_merge:
 	return ret;
 }
 
-static int do_update_ref(struct repository *r, const char *ref_name)
+static int write_update_refs_state(struct string_list *refs_to_oids)
 {
+	int result = 0;
+	struct lock_file lock = LOCK_INIT;
+	FILE *fp = NULL;
+	struct string_list_item *item;
+	char *path;
+
+	if (!refs_to_oids->nr)
+		return 0;
+
+	path = rebase_path_update_refs(the_repository->gitdir);
+
+	if (safe_create_leading_directories(path)) {
+		result = error(_("unable to create leading directories of %s"),
+			       path);
+		goto cleanup;
+	}
+
+	if (hold_lock_file_for_update(&lock, path, 0) < 0) {
+		result = error(_("another 'rebase' process appears to be running; "
+				 "'%s.lock' already exists"),
+			       path);
+		goto cleanup;
+	}
+
+	fp = fdopen_lock_file(&lock, "w");
+	if (!fp) {
+		result = error_errno(_("could not open '%s' for writing"), path);
+		rollback_lock_file(&lock);
+		goto cleanup;
+	}
+
+	for_each_string_list_item(item, refs_to_oids) {
+		struct update_ref_record *rec = item->util;
+		fprintf(fp, "%s\n%s\n%s\n", item->string,
+			oid_to_hex(&rec->before), oid_to_hex(&rec->after));
+	}
+
+	result = commit_lock_file(&lock);
+
+cleanup:
+	free(path);
+	return result;
+}
+
+static int do_update_ref(struct repository *r, const char *refname)
+{
+	struct string_list_item *item;
+	struct string_list list = STRING_LIST_INIT_DUP;
+
+	sequencer_get_update_refs_state(r->gitdir, &list);
+
+	for_each_string_list_item(item, &list) {
+		if (!strcmp(item->string, refname)) {
+			struct update_ref_record *rec = item->util;
+			read_ref("HEAD", &rec->after);
+			break;
+		}
+	}
+
+	write_update_refs_state(&list);
+	string_list_clear(&list, 1);
 	return 0;
+}
+
+static int do_update_refs(struct repository *r)
+{
+	int res = 0;
+	struct string_list_item *item;
+	struct string_list refs_to_oids = STRING_LIST_INIT_DUP;
+	struct ref_store *refs = get_main_ref_store(r);
+
+	sequencer_get_update_refs_state(r->gitdir, &refs_to_oids);
+
+	for_each_string_list_item(item, &refs_to_oids) {
+		struct update_ref_record *rec = item->util;
+
+		if (oideq(&rec->after, the_hash_algo->null_oid)) {
+			/*
+			 * Ref was not updated. User may have deleted the
+			 * 'update-ref' step.
+			 */
+			continue;
+		}
+
+		res |= refs_update_ref(refs, "rewritten during rebase",
+				       item->string,
+				       &rec->after, &rec->before,
+				       0, UPDATE_REFS_MSG_ON_ERR);
+	}
+
+	string_list_clear(&refs_to_oids, 1);
+	return res;
 }
 
 static int is_final_fixup(struct todo_list *todo_list)
@@ -4628,6 +4733,8 @@ cleanup_head_ref:
 		strbuf_release(&buf);
 		strbuf_release(&head_ref);
 	}
+
+	do_update_refs(r);
 
 	/*
 	 * Sequence of picks finished successfully; cleanup by
@@ -5711,7 +5818,7 @@ static int add_decorations_to_list(const struct commit *commit,
 
 			sti = string_list_insert(&ctx->refs_to_oids,
 						 decoration->name);
-			sti->util = oiddup(the_hash_algo->null_oid);
+			sti->util = init_update_ref_record(decoration->name);
 		}
 
 		item->offset_in_buf = base_offset;
@@ -5766,6 +5873,8 @@ static int todo_list_add_update_ref_commands(struct todo_list *todo_list)
 			add_decorations_to_list(item->commit, &ctx);
 		}
 	}
+
+	write_update_refs_state(&ctx.refs_to_oids);
 
 	string_list_clear(&ctx.refs_to_oids, 1);
 	free(todo_list->items);
