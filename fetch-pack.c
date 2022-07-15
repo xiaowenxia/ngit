@@ -392,7 +392,10 @@ static int find_common(struct fetch_negotiator *negotiator,
 	if (server_supports_filtering && args->filter_options.choice) {
 		const char *spec =
 			expand_list_objects_filter_spec(&args->filter_options);
+		trace2_data_string("fetch", the_repository, "fetch/effective-filter", spec);
 		packet_buf_write(&req_buf, "filter %s", spec);
+	} else {
+		trace2_data_string("fetch", the_repository, "fetch/effective-filter", "none");
 	}
 	packet_buf_flush(&req_buf);
 	state_len = req_buf.len;
@@ -1328,9 +1331,12 @@ static int send_fetch_request(struct fetch_negotiator *negotiator, int fd_out,
 		const char *spec =
 			expand_list_objects_filter_spec(&args->filter_options);
 		print_verbose(args, _("Server supports filter"));
+		trace2_data_string("fetch", the_repository, "fetch/effective-filter", spec);
 		packet_buf_write(&req_buf, "filter %s", spec);
-	} else if (args->filter_options.choice) {
-		warning("filtering not recognized by server, ignoring");
+	} else {
+		if (args->filter_options.choice)
+			warning("filtering not recognized by server, ignoring");
+		trace2_data_string("fetch", the_repository, "fetch/effective-filter", "none");
 	}
 
 	if (server_supports_feature("fetch", "packfile-uris", 0)) {
