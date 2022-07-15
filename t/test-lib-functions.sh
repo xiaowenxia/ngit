@@ -651,7 +651,7 @@ test_set_prereq () {
 		# test_unset_prereq()
 		!*)
 			;;
-		# (Temporary?) whitelist of things we can't easily
+		# (Temporary?) list of things we can't easily
 		# pretend not to support
 		SYMLINKS)
 			;;
