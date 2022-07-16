@@ -394,8 +394,8 @@ static ssize_t rewrite_ident_line(const char *person, struct strbuf *buf,
 	return 0;
 }
 
-void commit_rewrite_person(struct strbuf *buf, const char **header,
-						   struct string_list *mailmap)
+void apply_mailmap_to_header(struct strbuf *buf, const char **header,
+							 struct string_list *mailmap)
 {
 	size_t buf_offset = 0;
 
