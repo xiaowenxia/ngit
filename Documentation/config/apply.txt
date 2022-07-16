@@ -4,8 +4,13 @@ apply.ignoreWhitespace::
 	option.
 	When set to one of: no, none, never, false tells 'git apply' to
 	respect all whitespace differences.
+ifndef::git-apply[]
 	See linkgit:git-apply[1].
+endif::git-apply[]
 
 apply.whitespace::
 	Tells 'git apply' how to handle whitespaces, in the same way
-	as the `--whitespace` option. See linkgit:git-apply[1].
+	as the `--whitespace` option.
+ifndef::git-apply[]
+	See linkgit:git-apply[1].
+endif::git-apply[]
